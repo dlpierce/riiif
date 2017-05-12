@@ -16,23 +16,41 @@ describe Riiif::ImagesController do
                            rotation: '0', quality: 'default', format: 'jpg' }
       expect(response).to be_successful
       expect(response.body).to eq 'IMAGEDATA'
+      expect(response.headers['Content-Type']).to eq 'image/jpeg'
       expect(response.headers['Link']).to eq '<http://iiif.io/api/image/2/level1.json>;rel="profile"'
       expect(response.headers['Access-Control-Allow-Origin']).to eq '*'
-      expect(response.headers['Cache-Control']).to eq 'max-age=31557600, private'
+      expect(response.headers['Cache-Control']).to eq "max-age=#{1.year.to_i}, private"
     end
 
     context 'with an unauthorized image' do
       let(:auth) { double('no auth service', can?: false) }
-      let(:not_found_image) { double('not_found_image', render: 'test data') }
+
       before do
         allow(controller).to receive(:authorization_service).and_return(auth)
-        allow(controller).to receive(:not_found_image).and_return(not_found_image)
       end
-      it 'renders 401' do
-        get :show, params: { id: 'abcd1234', action: 'show', region: 'full', size: 'full',
-                             rotation: '0', quality: 'default', format: 'jpg' }
-        expect(response.body).to eq 'test data'
-        expect(response.code).to eq '401'
+
+      context 'with Riiif::unauthorized_image configured' do
+        before do
+          allow(controller).to receive(:error_image).with(:unauthorized).and_return(unauthorized_image)
+        end
+
+        let(:unauthorized_image) { double('unauthorized_image', render: 'test data') }
+
+        it 'renders 401 and renders the unauthorized_image' do
+          get :show, params: { id: 'abcd1234', action: 'show', region: 'full', size: 'full',
+                               rotation: '0', quality: 'default', format: 'jpg' }
+          expect(response.body).to eq 'test data'
+          expect(response.code).to eq '401'
+        end
+      end
+
+      context 'with Riiif::unauthorized_image left to nil' do
+        it 'gives a helpful error' do
+          expect do
+            get :show, params: { id: 'abcd1234', action: 'show', region: 'full', size: 'full',
+                                 rotation: '0', quality: 'default', format: 'jpg' }
+          end.to raise_error(Riiif::ImageNotFoundError)
+        end
       end
     end
 
@@ -49,11 +67,10 @@ describe Riiif::ImagesController do
 
     context 'with a nonexistent image' do
       it "errors when a default image isn't sent" do
-        expect(Riiif::Image).to receive(:new).with('bad_id').and_raise(OpenURI::HTTPError.new('fail', StringIO.new))
         expect do
           get :show, params: { id: 'bad_id', action: 'show', region: 'full', size: 'full',
                                rotation: '0', quality: 'default', format: 'jpg' }
-        end.to raise_error(StandardError)
+        end.to raise_error(Riiif::ImageNotFoundError)
       end
 
       context 'with a default image set' do
@@ -116,7 +133,7 @@ describe Riiif::ImagesController do
       expect(response.headers['Link']).to eq '<http://iiif.io/api/image/2/level1.json>;rel="profile"'
       expect(response.headers['Content-Type']).to eq 'application/ld+json; charset=utf-8'
       expect(response.headers['Access-Control-Allow-Origin']).to eq '*'
-      expect(response.headers['Cache-Control']).to eq 'max-age=31557600, private'
+      expect(response.headers['Cache-Control']).to eq "max-age=#{1.year.to_i}, private"
     end
 
     context 'with an unauthorized image' do
